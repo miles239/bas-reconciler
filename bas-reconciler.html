@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>BAS Property Reconciler</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   :root {
@@ -203,6 +204,11 @@
   .toast.error { background: var(--danger); }
   @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 
+  /* Recommendation badge */
+  .tx-rec { display: flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 11px; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 3px 7px; }
+  .rec-dot { font-size: 10px; }
+  .tx-rec span:last-child { font-weight: 500; color: var(--primary); }
+
   /* Misc */
   .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
   .empty-state svg { margin-bottom: 12px; opacity: 0.3; }
@@ -250,10 +256,10 @@
       <h2>Import Transactions</h2>
       <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
         <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-        <strong>Click to upload CSV</strong>
+        <strong>Click to upload CSV or PDF</strong>
         <p>or drag & drop a bank export here</p>
       </div>
-      <input type="file" id="file-input" accept=".csv" multiple onchange="handleFileInput(event)">
+      <input type="file" id="file-input" accept=".csv,.pdf" multiple onchange="handleFileInput(event)">
 
       <div class="csv-config" id="csv-config" style="display:none">
         <label>Date column</label>
@@ -525,15 +531,98 @@ uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag
 uploadZone.addEventListener('drop', e => {
   e.preventDefault();
   uploadZone.classList.remove('drag-over');
-  const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'));
-  if (files.length) processCSVFile(files[0]);
-  else toast('Please drop a CSV file', 'error');
+  const files = Array.from(e.dataTransfer.files);
+  const file = files.find(f => f.name.endsWith('.csv') || f.name.endsWith('.pdf'));
+  if (file) routeFile(file);
+  else toast('Please drop a CSV or PDF file', 'error');
 });
 
 function handleFileInput(e) {
   const file = e.target.files[0];
-  if (file) processCSVFile(file);
+  if (file) routeFile(file);
   e.target.value = '';
+}
+
+function routeFile(file) {
+  if (file.name.toLowerCase().endsWith('.pdf')) processPDFFile(file);
+  else processCSVFile(file);
+}
+
+// ─── PDF Parsing ──────────────────────────────────────────────────────────────
+async function processPDFFile(file) {
+  toast('Reading PDF…', '');
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+    let allLines = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const content = await page.getTextContent();
+      // Group items into lines by y-position
+      const items = content.items.map(i => ({ x: Math.round(i.transform[4]), y: Math.round(i.transform[5]), text: i.str }));
+      const byY = {};
+      items.forEach(i => {
+        const key = i.y;
+        if (!byY[key]) byY[key] = [];
+        byY[key].push(i);
+      });
+      Object.keys(byY).sort((a,b) => b - a).forEach(y => {
+        const line = byY[y].sort((a,b) => a.x - b.x).map(i => i.text).join(' ').trim();
+        if (line) allLines.push(line);
+      });
+    }
+
+    const txs = parsePDFLines(allLines);
+    if (txs.length === 0) {
+      toast('Could not detect transactions in PDF. Try CSV export instead.', 'error');
+      return;
+    }
+    txs.forEach(tx => transactions.push({ id: nextTxId++, ...tx, placed: false }));
+    renderInbox();
+    updateSummary();
+    toast(`Imported ${txs.length} transactions from PDF`, 'success');
+  } catch(err) {
+    console.error(err);
+    toast('Failed to read PDF — try a CSV export instead', 'error');
+  }
+}
+
+function parsePDFLines(lines) {
+  const results = [];
+  // Patterns for Australian bank statement rows:
+  // DD/MM/YYYY or DD Mon YYYY or DD/MM/YY followed by description and amount(s)
+  const dateRe = /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}|\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{2,4})/i;
+  const amountRe = /(-?\$?[\d,]+\.\d{2})/g;
+
+  lines.forEach(line => {
+    const dateMatch = line.match(dateRe);
+    if (!dateMatch) return;
+
+    const amounts = [...line.matchAll(amountRe)].map(m => parseAmount(m[1])).filter(n => !isNaN(n));
+    if (amounts.length === 0) return;
+
+    // Description: text between date and first amount
+    const afterDate = line.slice(line.indexOf(dateMatch[0]) + dateMatch[0].length);
+    const descMatch = afterDate.match(/^(.+?)(-?\$?[\d,]+\.\d{2})/);
+    let desc = descMatch ? descMatch[1].trim() : afterDate.replace(/(-?\$?[\d,]+\.\d{2})/g, '').trim();
+    desc = desc.replace(/\s{2,}/g, ' ').trim();
+    if (!desc || desc.length < 2) return;
+
+    // Use last amount as the transaction value (some statements show running balance too)
+    // Prefer a signed/negative amount for debits; heuristic: use first non-balance amount
+    let amount = amounts[0];
+    // If there are 2 amounts, second is often the balance — use first
+    // If line has "DR" or "debit" use negative
+    if (/\bDR\b/i.test(line) && amount > 0) amount = -amount;
+    if (/\bCR\b/i.test(line) && amount < 0) amount = -amount;
+
+    const date = parseDate(dateMatch[0]);
+    results.push({ date, dateRaw: dateMatch[0], desc, amount });
+  });
+
+  return results;
 }
 
 function processCSVFile(file) {
@@ -658,6 +747,50 @@ function parseDate(s) {
   return s;
 }
 
+// ─── Recommendation Engine ────────────────────────────────────────────────────
+const CATEGORY_KEYWORDS = {
+  'Rental Income':        ['rent', 'lease', 'tenancy', 'letting', 'tenant', 'rental'],
+  'Body Corporate':       ['body corp', 'bodycorp', 'strata', 'owners corp', 'levy', 'bc levy', 'owners corporation'],
+  'Council Rates':        ['council', 'rates', 'shire', 'local gov', 'city council', 'bcc', 'rate notice'],
+  'Water & Utilities':    ['water', 'seqwater', 'seq water', 'unity water', 'electricity', 'electric', 'power', 'gas', 'origin', 'agl', 'energex', 'ergon', 'energy', 'utility'],
+  'Insurance':            ['insurance', 'insur', 'qbe', 'nrma', 'allianz', 'suncorp', 'aami', 'cgu', 'zurich'],
+  'Repairs & Maintenance':['repair', 'maintenance', 'plumb', 'electr', 'tradie', 'tradesperson', 'hardware', 'bunnings', 'fix', 'service', 'contractor', 'builder', 'paint', 'carpet', 'handyman'],
+  'Property Management':  ['management fee', 'property management', 'agent fee', 'managing agent', 'lj hooker', 'ray white', 'harcourts', 'raine', 'mcgrath', 'century 21', 'remax', 'pm fee'],
+  'Land Tax':             ['land tax', 'osr', 'state revenue', 'qro', 'revenue office'],
+  'Accounting & Legal':   ['accountant', 'accounting', 'legal', 'solicitor', 'lawyer', 'conveyancer', 'bookkeep', 'bas agent', 'tax agent'],
+  'Other Expenses':       [],
+};
+
+// Learned associations: descKeyword -> catName, built from user assignments this session
+const learnedAssociations = {};
+
+function getRecommendation(tx) {
+  const desc = (tx.desc || '').toLowerCase();
+
+  // Check learned associations first (strongest signal)
+  for (const [keyword, catName] of Object.entries(learnedAssociations)) {
+    if (desc.includes(keyword)) return { catName, source: 'learned' };
+  }
+
+  // Rule-based keyword matching
+  for (const [catName, keywords] of Object.entries(CATEGORY_KEYWORDS)) {
+    if (keywords.some(k => desc.includes(k))) return { catName, source: 'suggested' };
+  }
+
+  // Fallback: positive amounts → Rental Income, negative → Other Expenses
+  if (tx.amount > 0) return { catName: 'Rental Income', source: 'suggested' };
+  return null;
+}
+
+function learnFromAssignment(tx, catName) {
+  // Extract 2–4 word chunks from description as learnable keywords
+  const words = (tx.desc || '').toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  if (words.length > 0) {
+    const key = words.slice(0, Math.min(3, words.length)).join(' ');
+    learnedAssociations[key] = catName;
+  }
+}
+
 // ─── Inbox ────────────────────────────────────────────────────────────────────
 function renderInbox() {
   const list = document.getElementById('inbox-list');
@@ -671,6 +804,13 @@ function renderInbox() {
 
   list.innerHTML = pending.map(tx => {
     const isPos = tx.amount >= 0;
+    const rec = getRecommendation(tx);
+    const recHtml = rec
+      ? `<div class="tx-rec" title="${rec.source === 'learned' ? 'Based on your past assignments' : 'Suggested based on description'}">
+           <span class="rec-dot">${rec.source === 'learned' ? '🧠' : '💡'}</span>
+           <span>${rec.catName}</span>
+         </div>`
+      : '';
     return `<div class="tx-card" id="txcard-${tx.id}" draggable="true"
       ondragstart="onDragStart(event,${tx.id})"
       ondragend="onDragEnd(event)">
@@ -680,6 +820,7 @@ function renderInbox() {
         <span class="tx-badge ${isPos ? 'income' : 'expense'}">${isPos ? 'Credit' : 'Debit'}</span>
         <span class="tx-amount ${isPos ? 'positive' : 'negative'}">${formatAmount(tx.amount)}</span>
       </div>
+      ${recHtml}
     </div>`;
   }).join('');
 }
@@ -775,6 +916,7 @@ function confirmSplit() {
     }
     tx.placed = true;
     tx.splitInfo = { type: 'split', p1Pct: pct1, p2Pct: pct2 };
+    learnFromAssignment(tx, cat.name);
   } else {
     // Assign to specific prop — move to that prop's matching category if needed
     let targetCat = cat;
@@ -785,6 +927,7 @@ function confirmSplit() {
     targetCat.transactions.push({ txId, splitProp: splitSelection, splitPct: 1 });
     tx.placed = true;
     tx.splitInfo = { type: splitSelection };
+    learnFromAssignment(tx, targetCat.name);
   }
 
   pendingDrop = null;
