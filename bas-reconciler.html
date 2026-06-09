@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BAS Property Reconciler</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f0f2f5;
+    --surface: #ffffff;
+    --surface2: #f8f9fa;
+    --border: #e0e4ea;
+    --primary: #2563eb;
+    --primary-light: #dbeafe;
+    --danger: #dc2626;
+    --success: #16a34a;
+    --success-light: #dcfce7;
+    --warning: #d97706;
+    --warning-light: #fef3c7;
+    --text: #1e293b;
+    --muted: #64748b;
+    --prop1: #7c3aed;
+    --prop1-light: #ede9fe;
+    --prop2: #0891b2;
+    --prop2-light: #cffafe;
+  }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* Header */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 0 24px; display: flex; align-items: center; justify-content: space-between; height: 60px; position: sticky; top: 0; z-index: 100; }
+  .logo { font-weight: 700; font-size: 18px; color: var(--primary); }
+  .logo span { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .quarter-selector { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+  .quarter-selector select { border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; font-size: 14px; background: var(--surface); color: var(--text); cursor: pointer; }
+
+  /* Buttons */
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 500; border: none; cursor: pointer; transition: all 0.15s; }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-outline { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btn-outline:hover { background: var(--surface2); }
+  .btn-success { background: var(--success); color: white; }
+  .btn-success:hover { background: #15803d; }
+  .btn-danger { background: var(--danger); color: white; font-size: 11px; padding: 4px 8px; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+  /* Layout */
+  .app { display: flex; height: calc(100vh - 60px); overflow: hidden; }
+  .sidebar { width: 380px; min-width: 340px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .main { flex: 1; overflow-y: auto; padding: 20px; }
+
+  /* Sidebar */
+  .sidebar-header { padding: 16px; border-bottom: 1px solid var(--border); }
+  .sidebar-header h2 { font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+  .upload-zone { border: 2px dashed var(--border); border-radius: 10px; padding: 20px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--surface2); }
+  .upload-zone:hover, .upload-zone.drag-over { border-color: var(--primary); background: var(--primary-light); }
+  .upload-zone svg { color: var(--muted); margin-bottom: 8px; }
+  .upload-zone p { font-size: 13px; color: var(--muted); }
+  .upload-zone strong { display: block; font-size: 13px; color: var(--primary); }
+  #file-input { display: none; }
+
+  .csv-config { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-top: 10px; font-size: 12px; }
+  .csv-config label { display: block; color: var(--muted); margin-bottom: 3px; }
+  .csv-config select, .csv-config input { width: 100%; border: 1px solid var(--border); border-radius: 5px; padding: 4px 7px; font-size: 12px; background: white; margin-bottom: 6px; }
+
+  .inbox { flex: 1; overflow-y: auto; padding: 12px 16px; }
+  .inbox h3 { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; display: flex; justify-content: space-between; }
+  .inbox-count { background: var(--primary); color: white; border-radius: 10px; padding: 1px 7px; font-size: 11px; }
+
+  /* Transaction cards */
+  .tx-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; cursor: grab; user-select: none; transition: all 0.15s; position: relative; }
+  .tx-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,0.1); }
+  .tx-card.dragging { opacity: 0.4; transform: scale(0.98); }
+  .tx-card.placed { opacity: 0.5; background: var(--surface2); cursor: default; }
+  .tx-date { font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+  .tx-desc { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 280px; }
+  .tx-amount { font-size: 14px; font-weight: 600; }
+  .tx-amount.positive { color: var(--success); }
+  .tx-amount.negative { color: var(--danger); }
+  .tx-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 4px; }
+  .tx-badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 500; }
+  .tx-badge.income { background: var(--success-light); color: var(--success); }
+  .tx-badge.expense { background: #fee2e2; color: var(--danger); }
+
+  /* Property tabs */
+  .prop-tabs { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+  .prop-tab { padding: 10px 20px; font-size: 14px; font-weight: 500; cursor: pointer; border-bottom: 3px solid transparent; margin-bottom: -2px; color: var(--muted); transition: all 0.15s; border-radius: 4px 4px 0 0; }
+  .prop-tab:hover { background: var(--surface2); color: var(--text); }
+  .prop-tab.active-p1 { border-bottom-color: var(--prop1); color: var(--prop1); }
+  .prop-tab.active-p2 { border-bottom-color: var(--prop2); color: var(--prop2); }
+  .prop-tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  /* Property settings */
+  .prop-settings { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 20px; display: flex; gap: 16px; align-items: flex-end; }
+  .prop-settings .field { flex: 1; }
+  .prop-settings label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 4px; }
+  .prop-settings input { width: 100%; border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 13px; background: white; }
+  .prop-settings input:focus { outline: none; border-color: var(--primary); }
+
+  /* Categories grid */
+  .categories-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+  .category-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  .category-header { padding: 12px 16px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); }
+  .category-title { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .cat-icon { font-size: 16px; }
+  .category-total { font-size: 14px; font-weight: 700; }
+  .category-total.income { color: var(--success); }
+  .category-total.expense { color: var(--danger); }
+
+  .drop-zone { min-height: 80px; padding: 10px; background: var(--surface2); transition: all 0.2s; }
+  .drop-zone.drag-over { background: var(--primary-light); border: 2px dashed var(--primary); border-radius: 8px; }
+  .drop-zone-hint { text-align: center; padding: 16px; color: var(--muted); font-size: 12px; }
+  .drop-zone-hint svg { display: block; margin: 0 auto 6px; opacity: 0.4; }
+
+  .placed-tx { background: white; border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; font-size: 12px; }
+  .placed-tx-desc { flex: 1; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .placed-tx-date { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .placed-tx-amount { font-weight: 600; white-space: nowrap; }
+  .placed-tx-amount.positive { color: var(--success); }
+  .placed-tx-amount.negative { color: var(--danger); }
+  .split-badge { font-size: 10px; padding: 2px 5px; border-radius: 4px; font-weight: 500; background: var(--prop1-light); color: var(--prop1); white-space: nowrap; }
+  .remove-btn { color: var(--muted); cursor: pointer; padding: 2px; border-radius: 3px; line-height: 1; font-size: 14px; border: none; background: none; }
+  .remove-btn:hover { color: var(--danger); background: #fee2e2; }
+
+  /* Split modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 200; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: white; border-radius: 14px; padding: 24px; width: 440px; max-width: 95vw; }
+  .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+  .modal-tx-info { background: var(--surface2); border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 13px; }
+  .modal-tx-info .amount { font-size: 18px; font-weight: 700; margin-top: 4px; }
+  .split-options { display: grid; gap: 10px; margin-bottom: 16px; }
+  .split-option { border: 2px solid var(--border); border-radius: 8px; padding: 12px 14px; cursor: pointer; transition: all 0.15s; }
+  .split-option:hover, .split-option.selected { border-color: var(--primary); background: var(--primary-light); }
+  .split-option label { cursor: pointer; font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .split-custom { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .split-custom input { width: 70px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; text-align: center; }
+  .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  /* Summary bar */
+  .summary-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .summary-item { text-align: center; }
+  .summary-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }
+  .summary-value { font-size: 20px; font-weight: 700; }
+  .summary-value.income { color: var(--success); }
+  .summary-value.expense { color: var(--danger); }
+  .summary-value.net.positive { color: var(--success); }
+  .summary-value.net.negative { color: var(--danger); }
+
+  /* Report modal */
+  .report-modal { width: 700px; max-width: 95vw; max-height: 85vh; overflow-y: auto; }
+  .report-section { margin-bottom: 20px; }
+  .report-section h4 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  .report-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; border-bottom: 1px solid #f5f5f5; }
+  .report-row:last-child { border-bottom: none; }
+  .report-subtotal { display: flex; justify-content: space-between; font-weight: 600; font-size: 13px; padding: 8px 0 0; border-top: 2px solid var(--border); margin-top: 4px; }
+  .report-total { background: var(--surface2); border-radius: 8px; padding: 12px 16px; display: flex; justify-content: space-between; font-weight: 700; font-size: 15px; margin-top: 16px; }
+
+  /* Toasts */
+  .toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 300; display: flex; flex-direction: column; gap: 8px; }
+  .toast { background: var(--text); color: white; padding: 10px 16px; border-radius: 8px; font-size: 13px; animation: slideIn 0.2s ease; max-width: 300px; }
+  .toast.success { background: var(--success); }
+  .toast.error { background: var(--danger); }
+  @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+  /* Misc */
+  .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
+  .empty-state svg { margin-bottom: 12px; opacity: 0.3; }
+  .tag { font-size: 11px; padding: 2px 7px; border-radius: 10px; font-weight: 500; }
+  .tag-p1 { background: var(--prop1-light); color: var(--prop1); }
+  .tag-p2 { background: var(--prop2-light); color: var(--prop2); }
+  .tag-both { background: #f3f4f6; color: var(--muted); }
+
+  .add-cat-btn { width: 100%; border: 2px dashed var(--border); border-radius: 12px; padding: 14px; font-size: 13px; color: var(--muted); background: none; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; }
+  .add-cat-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-light); }
+
+  .section-title { font-size: 16px; font-weight: 700; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">BAS Reconciler <span>Commercial Property</span></div>
+  <div class="header-actions">
+    <div class="quarter-selector">
+      Quarter:
+      <select id="quarter-select">
+        <option>Q1 2025–26 (Jul–Sep)</option>
+        <option>Q2 2025–26 (Oct–Dec)</option>
+        <option selected>Q3 2025–26 (Jan–Mar)</option>
+        <option>Q4 2025–26 (Apr–Jun)</option>
+      </select>
+    </div>
+    <button class="btn btn-outline" onclick="clearAll()">🗑 Clear All</button>
+    <button class="btn btn-success" onclick="openReport()">📄 Generate Report</button>
+  </div>
+</header>
+
+<div class="app">
+  <!-- Sidebar: upload + inbox -->
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h2>Import Transactions</h2>
+      <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
+        <svg width="32" height="32" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        <strong>Click to upload CSV</strong>
+        <p>or drag & drop a bank export here</p>
+      </div>
+      <input type="file" id="file-input" accept=".csv" multiple onchange="handleFileInput(event)">
+
+      <div class="csv-config" id="csv-config" style="display:none">
+        <label>Date column</label>
+        <select id="col-date"></select>
+        <label>Description column</label>
+        <select id="col-desc"></select>
+        <label>Amount column</label>
+        <select id="col-amount"></select>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:4px;cursor:pointer">
+          <input type="checkbox" id="has-debit-credit"> Separate Debit / Credit columns
+        </label>
+        <div id="debit-credit-fields" style="display:none;margin-top:6px">
+          <label>Debit column</label>
+          <select id="col-debit"></select>
+          <label>Credit column</label>
+          <select id="col-credit"></select>
+        </div>
+        <button class="btn btn-primary" style="width:100%;margin-top:8px;justify-content:center" onclick="importCSV()">Import Transactions</button>
+      </div>
+    </div>
+
+    <div class="inbox">
+      <h3>Inbox <span class="inbox-count" id="inbox-count">0</span></h3>
+      <div id="inbox-list"></div>
+    </div>
+  </div>
+
+  <!-- Main workspace -->
+  <div class="main">
+    <!-- Property tabs -->
+    <div class="prop-tabs">
+      <div class="prop-tab active-p1" id="tab-p1" onclick="setActiveProp('p1')">
+        <span class="prop-tab-dot" style="background:var(--prop1)"></span>
+        <span id="tab-p1-label">Property 1</span>
+      </div>
+      <div class="prop-tab" id="tab-p2" onclick="setActiveProp('p2')">
+        <span class="prop-tab-dot" style="background:var(--prop2)"></span>
+        <span id="tab-p2-label">Property 2</span>
+      </div>
+    </div>
+
+    <!-- Property name fields -->
+    <div class="prop-settings" id="prop-settings-p1">
+      <div class="field">
+        <label>Property Name</label>
+        <input type="text" id="p1-name" value="Property 1" oninput="updatePropName('p1')" placeholder="e.g. 12 Commercial Rd">
+      </div>
+      <div class="field">
+        <label>Address</label>
+        <input type="text" id="p1-address" placeholder="Street address">
+      </div>
+      <div class="field" style="max-width:120px">
+        <label>GST Registered?</label>
+        <select id="p1-gst" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;background:white">
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+    </div>
+    <div class="prop-settings" id="prop-settings-p2" style="display:none">
+      <div class="field">
+        <label>Property Name</label>
+        <input type="text" id="p2-name" value="Property 2" oninput="updatePropName('p2')" placeholder="e.g. 5 Industrial Ave">
+      </div>
+      <div class="field">
+        <label>Address</label>
+        <input type="text" id="p2-address" placeholder="Street address">
+      </div>
+      <div class="field" style="max-width:120px">
+        <label>GST Registered?</label>
+        <select id="p2-gst" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;background:white">
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Summary bar -->
+    <div class="summary-bar" id="summary-bar">
+      <div class="summary-item">
+        <div class="summary-label">Total Income</div>
+        <div class="summary-value income" id="sum-income">$0.00</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Total Expenses</div>
+        <div class="summary-value expense" id="sum-expenses">$0.00</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Net</div>
+        <div class="summary-value net" id="sum-net">$0.00</div>
+      </div>
+      <div class="summary-item">
+        <div class="summary-label">Unallocated</div>
+        <div class="summary-value" id="sum-unalloc" style="color:var(--warning)">0 items</div>
+      </div>
+    </div>
+
+    <!-- Categories -->
+    <div class="section-title" id="section-title">
+      <span class="prop-tab-dot" style="background:var(--prop1);width:10px;height:10px" id="section-dot"></span>
+      <span id="section-title-text">Property 1 — Categories</span>
+    </div>
+
+    <div class="categories-grid" id="categories-grid"></div>
+
+    <button class="add-cat-btn" onclick="addCategory()" style="margin-top:16px">
+      <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+      Add Category
+    </button>
+  </div>
+</div>
+
+<!-- Split assignment modal -->
+<div class="modal-overlay" id="split-modal">
+  <div class="modal">
+    <h3>Assign Transaction</h3>
+    <div class="modal-tx-info" id="split-tx-info"></div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Which property does this belong to?</p>
+    <div class="split-options">
+      <div class="split-option" id="opt-p1" onclick="selectSplitOpt('p1')">
+        <label><input type="radio" name="split" value="p1"> <span id="opt-p1-label" style="color:var(--prop1)">●</span> Property 1 (100%)</label>
+      </div>
+      <div class="split-option" id="opt-p2" onclick="selectSplitOpt('p2')">
+        <label><input type="radio" name="split" value="p2"> <span id="opt-p2-label" style="color:var(--prop2)">●</span> Property 2 (100%)</label>
+      </div>
+      <div class="split-option" id="opt-split" onclick="selectSplitOpt('split')">
+        <label><input type="radio" name="split" value="split"> Split between both properties</label>
+        <div class="split-custom" id="split-custom" style="display:none">
+          <span id="split-p1-name" style="font-size:12px;color:var(--prop1)">P1</span>
+          <input type="number" id="split-pct-p1" value="50" min="1" max="99" oninput="syncSplitPct()">
+          <span style="font-size:12px">%</span>
+          <span style="font-size:12px;color:var(--muted)">+</span>
+          <span id="split-p2-name" style="font-size:12px;color:var(--prop2)">P2</span>
+          <input type="number" id="split-pct-p2" value="50" min="1" max="99" oninput="syncSplitPct2()">
+          <span style="font-size:12px">%</span>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeSplitModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmSplit()">Assign</button>
+    </div>
+  </div>
+</div>
+
+<!-- Report modal -->
+<div class="modal-overlay" id="report-modal">
+  <div class="modal report-modal">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 style="margin:0">Expense Report</h3>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-outline btn-sm" onclick="printReport()">🖨 Print</button>
+        <button class="btn btn-success btn-sm" onclick="exportCSV()">⬇ Export CSV</button>
+        <button class="btn btn-outline btn-sm" onclick="closeReport()">✕ Close</button>
+      </div>
+    </div>
+    <div id="report-content"></div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────────
+let transactions = [];
+let categories = { p1: [], p2: [] };
+let activeProp = 'p1';
+let dragItem = null;
+let pendingDrop = null; // { txId, catId }
+let splitSelection = 'p1';
+let csvHeaders = [];
+let csvRows = [];
+let nextTxId = 1;
+let nextCatId = 1;
+
+const DEFAULT_CATEGORIES = [
+  { name: 'Rental Income', icon: '💰', type: 'income' },
+  { name: 'Body Corporate', icon: '🏢', type: 'expense' },
+  { name: 'Council Rates', icon: '🏛', type: 'expense' },
+  { name: 'Water & Utilities', icon: '💧', type: 'expense' },
+  { name: 'Insurance', icon: '🛡', type: 'expense' },
+  { name: 'Repairs & Maintenance', icon: '🔧', type: 'expense' },
+  { name: 'Property Management', icon: '👤', type: 'expense' },
+  { name: 'Land Tax', icon: '📋', type: 'expense' },
+  { name: 'Accounting & Legal', icon: '⚖️', type: 'expense' },
+  { name: 'Other Expenses', icon: '📦', type: 'expense' },
+];
+
+// Init default categories
+function initCategories() {
+  ['p1', 'p2'].forEach(p => {
+    categories[p] = DEFAULT_CATEGORIES.map(c => ({
+      id: nextCatId++,
+      prop: p,
+      name: c.name,
+      icon: c.icon,
+      type: c.type,
+      transactions: [],
+    }));
+  });
+}
+
+initCategories();
+renderCategories();
+
+// ─── Property management ─────────────────────────────────────────────────────
+function setActiveProp(p) {
+  activeProp = p;
+  document.getElementById('tab-p1').className = 'prop-tab' + (p === 'p1' ? ' active-p1' : '');
+  document.getElementById('tab-p2').className = 'prop-tab' + (p === 'p2' ? ' active-p2' : '');
+  document.getElementById('prop-settings-p1').style.display = p === 'p1' ? 'flex' : 'none';
+  document.getElementById('prop-settings-p2').style.display = p === 'p2' ? 'flex' : 'none';
+  const name = getPropName(p);
+  const color = p === 'p1' ? 'var(--prop1)' : 'var(--prop2)';
+  document.getElementById('section-dot').style.background = color;
+  document.getElementById('section-title-text').textContent = name + ' — Categories';
+  renderCategories();
+  updateSummary();
+}
+
+function getPropName(p) {
+  return document.getElementById(p + '-name').value || (p === 'p1' ? 'Property 1' : 'Property 2');
+}
+
+function updatePropName(p) {
+  const name = getPropName(p);
+  document.getElementById('tab-' + p + '-label').textContent = name;
+  if (activeProp === p) {
+    document.getElementById('section-title-text').textContent = name + ' — Categories';
+  }
+}
+
+// ─── CSV Upload ───────────────────────────────────────────────────────────────
+const uploadZone = document.getElementById('upload-zone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+uploadZone.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadZone.classList.remove('drag-over');
+  const files = Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'));
+  if (files.length) processCSVFile(files[0]);
+  else toast('Please drop a CSV file', 'error');
+});
+
+function handleFileInput(e) {
+  const file = e.target.files[0];
+  if (file) processCSVFile(file);
+  e.target.value = '';
+}
+
+function processCSVFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    const text = e.target.result;
+    const lines = text.split(/\r?\n/).filter(l => l.trim());
+    if (lines.length < 2) { toast('CSV appears empty', 'error'); return; }
+
+    // Detect delimiter
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    csvHeaders = parseCSVLine(lines[0], delim);
+    csvRows = lines.slice(1).map(l => parseCSVLine(l, delim)).filter(r => r.some(c => c.trim()));
+
+    // Populate column selectors
+    const selects = ['col-date','col-desc','col-amount','col-debit','col-credit'];
+    selects.forEach(id => {
+      const sel = document.getElementById(id);
+      sel.innerHTML = csvHeaders.map((h,i) => `<option value="${i}">${h}</option>`).join('');
+    });
+
+    // Auto-detect columns
+    autoDetectColumns();
+    document.getElementById('csv-config').style.display = 'block';
+    toast(`Loaded ${csvRows.length} rows — configure columns below`, 'success');
+  };
+  reader.readAsText(file);
+}
+
+function parseCSVLine(line, delim = ',') {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '"') { inQuotes = !inQuotes; continue; }
+    if (line[i] === delim && !inQuotes) { result.push(current.trim()); current = ''; continue; }
+    current += line[i];
+  }
+  result.push(current.trim());
+  return result;
+}
+
+function autoDetectColumns() {
+  const h = csvHeaders.map(x => x.toLowerCase());
+  const find = (...terms) => { const i = h.findIndex(x => terms.some(t => x.includes(t))); return i >= 0 ? i : 0; };
+  document.getElementById('col-date').value = find('date');
+  document.getElementById('col-desc').value = find('desc', 'narr', 'particulars', 'detail', 'reference', 'memo');
+  document.getElementById('col-amount').value = find('amount', 'value', 'net');
+  document.getElementById('col-debit').value = find('debit', 'withdrawal', 'dr');
+  document.getElementById('col-credit').value = find('credit', 'deposit', 'cr');
+  const hasDebitCredit = h.some(x => x.includes('debit') || x.includes('credit') || x.includes('withdrawal') || x.includes('deposit'));
+  document.getElementById('has-debit-credit').checked = hasDebitCredit;
+  document.getElementById('debit-credit-fields').style.display = hasDebitCredit ? 'block' : 'none';
+}
+
+document.getElementById('has-debit-credit').addEventListener('change', function() {
+  document.getElementById('debit-credit-fields').style.display = this.checked ? 'block' : 'none';
+});
+
+function importCSV() {
+  const dateCol = +document.getElementById('col-date').value;
+  const descCol = +document.getElementById('col-desc').value;
+  const useDebitCredit = document.getElementById('has-debit-credit').checked;
+  const amountCol = +document.getElementById('col-amount').value;
+  const debitCol = +document.getElementById('col-debit').value;
+  const creditCol = +document.getElementById('col-credit').value;
+
+  let imported = 0;
+  csvRows.forEach(row => {
+    if (row.length < 2) return;
+    let amount = 0;
+    if (useDebitCredit) {
+      const debit = parseAmount(row[debitCol] || '');
+      const credit = parseAmount(row[creditCol] || '');
+      if (!isNaN(debit) && debit !== 0) amount = -Math.abs(debit);
+      else if (!isNaN(credit) && credit !== 0) amount = Math.abs(credit);
+      else return;
+    } else {
+      amount = parseAmount(row[amountCol] || '');
+      if (isNaN(amount)) return;
+    }
+
+    const dateRaw = row[dateCol] || '';
+    const desc = row[descCol] || 'No description';
+    const date = parseDate(dateRaw);
+
+    transactions.push({ id: nextTxId++, date, dateRaw, desc, amount, placed: false });
+    imported++;
+  });
+
+  renderInbox();
+  updateSummary();
+  document.getElementById('csv-config').style.display = 'none';
+  toast(`Imported ${imported} transactions`, 'success');
+}
+
+function parseAmount(s) {
+  const cleaned = s.replace(/[$,\s]/g, '').replace(/\((.+)\)/, '-$1');
+  return parseFloat(cleaned);
+}
+
+function parseDate(s) {
+  if (!s) return '';
+  // Try DD/MM/YYYY, MM/DD/YYYY, YYYY-MM-DD
+  const formats = [
+    /^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/, // DD/MM/YYYY or MM/DD/YYYY
+    /^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/, // YYYY-MM-DD
+  ];
+  for (const f of formats) {
+    const m = s.match(f);
+    if (m) {
+      try {
+        const parts = m.slice(1).map(Number);
+        if (parts[0] > 1000) { // YYYY-MM-DD
+          return new Date(parts[0], parts[1]-1, parts[2]).toLocaleDateString('en-AU');
+        } else {
+          return new Date(parts[2], parts[1]-1, parts[0]).toLocaleDateString('en-AU');
+        }
+      } catch(e) {}
+    }
+  }
+  return s;
+}
+
+// ─── Inbox ────────────────────────────────────────────────────────────────────
+function renderInbox() {
+  const list = document.getElementById('inbox-list');
+  const pending = transactions.filter(t => !t.placed);
+  document.getElementById('inbox-count').textContent = pending.length;
+
+  if (pending.length === 0) {
+    list.innerHTML = `<div class="empty-state"><svg width="40" height="40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>All transactions assigned</p></div>`;
+    return;
+  }
+
+  list.innerHTML = pending.map(tx => {
+    const isPos = tx.amount >= 0;
+    return `<div class="tx-card" id="txcard-${tx.id}" draggable="true"
+      ondragstart="onDragStart(event,${tx.id})"
+      ondragend="onDragEnd(event)">
+      <div class="tx-date">${tx.date || tx.dateRaw}</div>
+      <div class="tx-desc" title="${tx.desc}">${tx.desc}</div>
+      <div class="tx-meta">
+        <span class="tx-badge ${isPos ? 'income' : 'expense'}">${isPos ? 'Credit' : 'Debit'}</span>
+        <span class="tx-amount ${isPos ? 'positive' : 'negative'}">${formatAmount(tx.amount)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Drag & Drop ──────────────────────────────────────────────────────────────
+function onDragStart(e, txId) {
+  dragItem = txId;
+  e.dataTransfer.effectAllowed = 'move';
+  setTimeout(() => { const el = document.getElementById('txcard-' + txId); if (el) el.classList.add('dragging'); }, 0);
+}
+
+function onDragEnd(e) {
+  const el = document.getElementById('txcard-' + dragItem);
+  if (el) el.classList.remove('dragging');
+}
+
+function onDropZoneDragOver(e, catId) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+
+function onDropZoneDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+function onDrop(e, catId) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  if (!dragItem) return;
+
+  // Check if tx already placed
+  const tx = transactions.find(t => t.id === dragItem);
+  if (!tx || tx.placed) return;
+
+  pendingDrop = { txId: dragItem, catId };
+  openSplitModal(tx);
+}
+
+// ─── Split Modal ──────────────────────────────────────────────────────────────
+function openSplitModal(tx) {
+  const isPos = tx.amount >= 0;
+  document.getElementById('split-tx-info').innerHTML = `
+    <div>${tx.date || tx.dateRaw} — ${tx.desc}</div>
+    <div class="amount ${isPos ? 'positive' : 'negative'}">${formatAmount(tx.amount)}</div>`;
+  document.getElementById('opt-p1-label').textContent = '● ' + getPropName('p1');
+  document.getElementById('opt-p2-label').textContent = '● ' + getPropName('p2');
+  document.getElementById('split-p1-name').textContent = getPropName('p1');
+  document.getElementById('split-p2-name').textContent = getPropName('p2');
+  selectSplitOpt('p1');
+  document.getElementById('split-modal').classList.add('open');
+}
+
+function selectSplitOpt(opt) {
+  splitSelection = opt;
+  ['p1','p2','split'].forEach(o => {
+    document.getElementById('opt-' + o).classList.toggle('selected', o === opt);
+    document.querySelector(`input[value="${o}"]`).checked = o === opt;
+  });
+  document.getElementById('split-custom').style.display = opt === 'split' ? 'flex' : 'none';
+}
+
+function syncSplitPct() {
+  const v = Math.min(99, Math.max(1, +document.getElementById('split-pct-p1').value));
+  document.getElementById('split-pct-p2').value = 100 - v;
+}
+function syncSplitPct2() {
+  const v = Math.min(99, Math.max(1, +document.getElementById('split-pct-p2').value));
+  document.getElementById('split-pct-p1').value = 100 - v;
+}
+
+function confirmSplit() {
+  if (!pendingDrop) { closeSplitModal(); return; }
+  const { txId, catId } = pendingDrop;
+  const tx = transactions.find(t => t.id === txId);
+  if (!tx) { closeSplitModal(); return; }
+
+  const cat = getCatById(catId);
+  if (!cat) { closeSplitModal(); return; }
+
+  if (splitSelection === 'split') {
+    const pct1 = +document.getElementById('split-pct-p1').value / 100;
+    const pct2 = 1 - pct1;
+
+    // Add to current prop's cat
+    cat.transactions.push({ txId, splitProp: cat.prop, splitPct: cat.prop === 'p1' ? pct1 : pct2 });
+
+    // Find same-name cat in other prop
+    const otherProp = cat.prop === 'p1' ? 'p2' : 'p1';
+    let otherCat = categories[otherProp].find(c => c.name === cat.name);
+    if (!otherCat) otherCat = categories[otherProp][categories[otherProp].length - 1];
+    if (otherCat) {
+      otherCat.transactions.push({ txId, splitProp: otherProp, splitPct: otherProp === 'p1' ? pct1 : pct2 });
+    }
+    tx.placed = true;
+    tx.splitInfo = { type: 'split', p1Pct: pct1, p2Pct: pct2 };
+  } else {
+    // Assign to specific prop — move to that prop's matching category if needed
+    let targetCat = cat;
+    if (cat.prop !== splitSelection) {
+      // Find same-name cat in target prop
+      targetCat = categories[splitSelection].find(c => c.name === cat.name) || categories[splitSelection][0];
+    }
+    targetCat.transactions.push({ txId, splitProp: splitSelection, splitPct: 1 });
+    tx.placed = true;
+    tx.splitInfo = { type: splitSelection };
+  }
+
+  pendingDrop = null;
+  closeSplitModal();
+  renderInbox();
+  renderCategories();
+  updateSummary();
+}
+
+function closeSplitModal() {
+  document.getElementById('split-modal').classList.remove('open');
+  pendingDrop = null;
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+function getCatById(id) {
+  for (const p of ['p1','p2']) {
+    const c = categories[p].find(c => c.id === id);
+    if (c) return c;
+  }
+  return null;
+}
+
+function renderCategories() {
+  const grid = document.getElementById('categories-grid');
+  const cats = categories[activeProp];
+
+  grid.innerHTML = cats.map(cat => {
+    const total = getCatTotal(cat);
+    const txItems = cat.transactions.map(entry => {
+      const tx = transactions.find(t => t.id === entry.txId);
+      if (!tx) return '';
+      const amt = tx.amount * entry.splitPct;
+      const isPos = amt >= 0;
+      const isSplit = tx.splitInfo && tx.splitInfo.type === 'split';
+      return `<div class="placed-tx">
+        <div style="flex:1;min-width:0">
+          <div class="placed-tx-desc" title="${tx.desc}">${tx.desc}</div>
+          <div class="placed-tx-date">${tx.date || tx.dateRaw}${isSplit ? ` · ${Math.round(entry.splitPct*100)}%` : ''}</div>
+        </div>
+        ${isSplit ? `<span class="split-badge">Split</span>` : ''}
+        <span class="placed-tx-amount ${isPos ? 'positive' : 'negative'}">${formatAmount(amt)}</span>
+        <button class="remove-btn" onclick="removeTx(${cat.id},${entry.txId})" title="Remove">×</button>
+      </div>`;
+    }).join('');
+
+    return `<div class="category-card" id="cat-${cat.id}">
+      <div class="category-header">
+        <div class="category-title">
+          <span class="cat-icon">${cat.icon}</span>
+          <span contenteditable="true" onblur="renameCat(${cat.id},this.textContent.trim())" style="outline:none;cursor:text" title="Click to rename">${cat.name}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="category-total ${cat.type}">${formatAmount(total)}</span>
+          <button class="btn btn-danger btn-sm" onclick="deleteCategory(${cat.id})" title="Delete category">×</button>
+        </div>
+      </div>
+      <div class="drop-zone" id="drop-${cat.id}"
+        ondragover="onDropZoneDragOver(event,${cat.id})"
+        ondragleave="onDropZoneDragLeave(event)"
+        ondrop="onDrop(event,${cat.id})">
+        ${txItems || `<div class="drop-zone-hint"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 9l-7 7-7-7"/></svg>Drop transactions here</div>`}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function getCatTotal(cat) {
+  return cat.transactions.reduce((sum, entry) => {
+    const tx = transactions.find(t => t.id === entry.txId);
+    return sum + (tx ? tx.amount * entry.splitPct : 0);
+  }, 0);
+}
+
+function removeTx(catId, txId) {
+  const cat = getCatById(catId);
+  if (!cat) return;
+  cat.transactions = cat.transactions.filter(e => e.txId !== txId);
+
+  // Also remove from other prop if split
+  const tx = transactions.find(t => t.id === txId);
+  if (tx && tx.splitInfo && tx.splitInfo.type === 'split') {
+    const otherProp = cat.prop === 'p1' ? 'p2' : 'p1';
+    categories[otherProp].forEach(c => { c.transactions = c.transactions.filter(e => e.txId !== txId); });
+  }
+
+  if (tx) { tx.placed = false; tx.splitInfo = null; }
+  renderInbox();
+  renderCategories();
+  updateSummary();
+}
+
+function renameCat(catId, name) {
+  const cat = getCatById(catId);
+  if (cat && name) cat.name = name;
+}
+
+function deleteCategory(catId) {
+  const cat = getCatById(catId);
+  if (!cat) return;
+  if (cat.transactions.length && !confirm(`Delete "${cat.name}"? This will unassign ${cat.transactions.length} transaction(s).`)) return;
+
+  // Unplace any transactions
+  cat.transactions.forEach(e => {
+    const tx = transactions.find(t => t.id === e.txId);
+    if (tx) { tx.placed = false; tx.splitInfo = null; }
+  });
+
+  categories[cat.prop] = categories[cat.prop].filter(c => c.id !== catId);
+  renderInbox();
+  renderCategories();
+  updateSummary();
+}
+
+function addCategory() {
+  const name = prompt('Category name:');
+  if (!name) return;
+  const icon = prompt('Emoji icon (e.g. 🏠):', '📦') || '📦';
+  const typeStr = prompt('Type? Enter "income" or "expense":', 'expense');
+  const type = typeStr === 'income' ? 'income' : 'expense';
+  categories[activeProp].push({ id: nextCatId++, prop: activeProp, name, icon, type, transactions: [] });
+  renderCategories();
+}
+
+// ─── Summary ──────────────────────────────────────────────────────────────────
+function updateSummary() {
+  const cats = categories[activeProp];
+  let income = 0, expenses = 0;
+  cats.forEach(cat => {
+    const total = getCatTotal(cat);
+    if (cat.type === 'income') income += total;
+    else expenses += Math.abs(total);
+  });
+  const net = income - expenses;
+  const unalloc = transactions.filter(t => !t.placed).length;
+
+  document.getElementById('sum-income').textContent = formatAmount(income);
+  document.getElementById('sum-expenses').textContent = formatAmount(-expenses);
+  const netEl = document.getElementById('sum-net');
+  netEl.textContent = formatAmount(net);
+  netEl.className = 'summary-value net ' + (net >= 0 ? 'positive' : 'negative');
+  const unallocEl = document.getElementById('sum-unalloc');
+  unallocEl.textContent = unalloc + ' items';
+  unallocEl.style.color = unalloc > 0 ? 'var(--warning)' : 'var(--success)';
+}
+
+// ─── Report ───────────────────────────────────────────────────────────────────
+function openReport() {
+  const quarter = document.getElementById('quarter-select').value;
+  let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Generated: ${new Date().toLocaleDateString('en-AU')} · ${quarter}</div>`;
+
+  ['p1','p2'].forEach(p => {
+    const name = getPropName(p);
+    const address = document.getElementById(p + '-address').value;
+    const gst = document.getElementById(p + '-gst').value;
+    const cats = categories[p];
+
+    html += `<div class="report-section">
+      <h4>${name}${address ? ' — ' + address : ''} ${gst === 'yes' ? '(GST Registered)' : ''}</h4>`;
+
+    const incomeCats = cats.filter(c => c.type === 'income');
+    const expenseCats = cats.filter(c => c.type === 'expense');
+    let totalIncome = 0, totalExpenses = 0;
+
+    if (incomeCats.length) {
+      html += `<div style="font-weight:600;font-size:12px;margin:8px 0 4px;color:var(--success)">INCOME</div>`;
+      incomeCats.forEach(cat => {
+        const total = getCatTotal(cat);
+        if (total === 0 && cat.transactions.length === 0) return;
+        totalIncome += total;
+        html += `<div class="report-row"><span>${cat.icon} ${cat.name}</span><span style="color:var(--success)">${formatAmount(total)}</span></div>`;
+        cat.transactions.forEach(e => {
+          const tx = transactions.find(t => t.id === e.txId);
+          if (!tx) return;
+          const amt = tx.amount * e.splitPct;
+          const isSplit = tx.splitInfo && tx.splitInfo.type === 'split';
+          html += `<div class="report-row" style="padding-left:20px;color:var(--muted)">
+            <span>${tx.date || tx.dateRaw} · ${tx.desc}${isSplit ? ` (${Math.round(e.splitPct*100)}%)` : ''}</span>
+            <span>${formatAmount(amt)}</span></div>`;
+        });
+      });
+      html += `<div class="report-subtotal"><span>Total Income</span><span style="color:var(--success)">${formatAmount(totalIncome)}</span></div>`;
+    }
+
+    if (expenseCats.length) {
+      html += `<div style="font-weight:600;font-size:12px;margin:12px 0 4px;color:var(--danger)">EXPENSES</div>`;
+      expenseCats.forEach(cat => {
+        const total = getCatTotal(cat);
+        if (total === 0 && cat.transactions.length === 0) return;
+        totalExpenses += Math.abs(total);
+        html += `<div class="report-row"><span>${cat.icon} ${cat.name}</span><span style="color:var(--danger)">${formatAmount(total)}</span></div>`;
+        cat.transactions.forEach(e => {
+          const tx = transactions.find(t => t.id === e.txId);
+          if (!tx) return;
+          const amt = tx.amount * e.splitPct;
+          const isSplit = tx.splitInfo && tx.splitInfo.type === 'split';
+          html += `<div class="report-row" style="padding-left:20px;color:var(--muted)">
+            <span>${tx.date || tx.dateRaw} · ${tx.desc}${isSplit ? ` (${Math.round(e.splitPct*100)}%)` : ''}</span>
+            <span>${formatAmount(amt)}</span></div>`;
+        });
+      });
+      html += `<div class="report-subtotal"><span>Total Expenses</span><span style="color:var(--danger)">${formatAmount(-totalExpenses)}</span></div>`;
+    }
+
+    const net = totalIncome - totalExpenses;
+    html += `<div class="report-total">
+      <span>Net (${name})</span>
+      <span style="color:${net >= 0 ? 'var(--success)' : 'var(--danger)'}">${formatAmount(net)}</span>
+    </div></div>`;
+  });
+
+  // Combined totals
+  let grandIncome = 0, grandExpenses = 0;
+  ['p1','p2'].forEach(p => {
+    categories[p].forEach(cat => {
+      const total = getCatTotal(cat);
+      if (cat.type === 'income') grandIncome += total;
+      else grandExpenses += Math.abs(total);
+    });
+  });
+  html += `<div style="background:#1e293b;color:white;border-radius:10px;padding:16px 20px;margin-top:8px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:10px">COMBINED PORTFOLIO SUMMARY</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+      <span>Total Income</span><span style="color:#86efac">${formatAmount(grandIncome)}</span></div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+      <span>Total Expenses</span><span style="color:#fca5a5">${formatAmount(-grandExpenses)}</span></div>
+    <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;border-top:1px solid rgba(255,255,255,0.2);padding-top:10px;margin-top:8px">
+      <span>Net Position</span><span style="color:${(grandIncome-grandExpenses) >= 0 ? '#86efac' : '#fca5a5'}">${formatAmount(grandIncome - grandExpenses)}</span></div>
+  </div>`;
+
+  document.getElementById('report-content').innerHTML = html;
+  document.getElementById('report-modal').classList.add('open');
+}
+
+function closeReport() { document.getElementById('report-modal').classList.remove('open'); }
+
+function printReport() {
+  const content = document.getElementById('report-content').innerHTML;
+  const quarter = document.getElementById('quarter-select').value;
+  const w = window.open('', '_blank');
+  w.document.write(`<!DOCTYPE html><html><head><title>BAS Report — ${quarter}</title>
+    <style>body{font-family:-apple-system,sans-serif;padding:40px;color:#1e293b;max-width:700px;margin:0 auto}
+    .report-row{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;border-bottom:1px solid #f0f0f0}
+    .report-subtotal{display:flex;justify-content:space-between;font-weight:600;padding:8px 0 0;border-top:2px solid #e0e4ea;margin-top:4px;font-size:13px}
+    .report-total{background:#f8f9fa;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;font-weight:700;font-size:15px;margin-top:16px}
+    .report-section{margin-bottom:24px;page-break-inside:avoid}
+    h4{font-size:12px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #e0e4ea}
+    h1{font-size:22px;margin-bottom:4px}p.sub{color:#64748b;font-size:13px;margin-bottom:24px}
+    @media print{@page{margin:20mm}}</style>
+    </head><body>
+    <h1>BAS Expense Report</h1>
+    <p class="sub">${quarter} · Generated ${new Date().toLocaleDateString('en-AU')}</p>
+    ${content}
+    </body></html>`);
+  w.document.close();
+  w.print();
+}
+
+function exportCSV() {
+  const quarter = document.getElementById('quarter-select').value;
+  let rows = [['Property','Category','Type','Date','Description','Amount','Split%']];
+  ['p1','p2'].forEach(p => {
+    const name = getPropName(p);
+    categories[p].forEach(cat => {
+      cat.transactions.forEach(e => {
+        const tx = transactions.find(t => t.id === e.txId);
+        if (!tx) return;
+        const amt = tx.amount * e.splitPct;
+        rows.push([name, cat.name, cat.type, tx.date || tx.dateRaw, `"${tx.desc}"`, amt.toFixed(2), (e.splitPct * 100).toFixed(0) + '%']);
+      });
+    });
+  });
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `BAS-Report-${quarter.replace(/[^a-z0-9]/gi,'-')}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  toast('CSV exported', 'success');
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────────────
+function formatAmount(n) {
+  if (isNaN(n)) return '$0.00';
+  const abs = Math.abs(n);
+  const formatted = abs.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (n < 0 ? '-' : '') + '$' + formatted;
+}
+
+function clearAll() {
+  if (!confirm('Clear all transactions and assignments? Property names and categories will be kept.')) return;
+  transactions = [];
+  nextTxId = 1;
+  ['p1','p2'].forEach(p => categories[p].forEach(c => c.transactions = []));
+  renderInbox();
+  renderCategories();
+  updateSummary();
+  toast('Cleared', 'success');
+}
+
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+// Close modals on overlay click
+document.getElementById('split-modal').addEventListener('click', function(e) { if (e.target === this) closeSplitModal(); });
+document.getElementById('report-modal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
+
+// ─── Persistence ──────────────────────────────────────────────────────────────
+const SAVE_KEY = 'bas-reconciler-v1';
+
+function saveState() {
+  try {
+    const state = {
+      transactions,
+      categories,
+      activeProp,
+      nextTxId,
+      nextCatId,
+      p1Name: document.getElementById('p1-name').value,
+      p2Name: document.getElementById('p2-name').value,
+      p1Address: document.getElementById('p1-address').value,
+      p2Address: document.getElementById('p2-address').value,
+      p1Gst: document.getElementById('p1-gst').value,
+      p2Gst: document.getElementById('p2-gst').value,
+      quarter: document.getElementById('quarter-select').value,
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(state));
+  } catch(e) {}
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return false;
+    const s = JSON.parse(raw);
+    transactions = s.transactions || [];
+    categories = s.categories || { p1: [], p2: [] };
+    activeProp = s.activeProp || 'p1';
+    nextTxId = s.nextTxId || 1;
+    nextCatId = s.nextCatId || 1;
+    if (s.p1Name) document.getElementById('p1-name').value = s.p1Name;
+    if (s.p2Name) document.getElementById('p2-name').value = s.p2Name;
+    if (s.p1Address) document.getElementById('p1-address').value = s.p1Address;
+    if (s.p2Address) document.getElementById('p2-address').value = s.p2Address;
+    if (s.p1Gst) document.getElementById('p1-gst').value = s.p1Gst;
+    if (s.p2Gst) document.getElementById('p2-gst').value = s.p2Gst;
+    if (s.quarter) document.getElementById('quarter-select').value = s.quarter;
+    return true;
+  } catch(e) { return false; }
+}
+
+// Auto-save on any state change — debounced
+let saveTimer;
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveState, 500); }
+
+// Patch state-mutating functions to auto-save
+const _origRenderCategories = renderCategories;
+renderCategories = function() { _origRenderCategories(); scheduleSave(); };
+const _origRenderInbox = renderInbox;
+renderInbox = function() { _origRenderInbox(); scheduleSave(); };
+
+// Initial render
+const didLoad = loadState();
+setActiveProp(activeProp);
+renderInbox();
+updateSummary();
+if (didLoad) toast('Session restored', 'success');
+
+// Save on property name/address/gst changes
+['p1-name','p2-name','p1-address','p2-address','p1-gst','p2-gst','quarter-select'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', scheduleSave);
+  if (el) el.addEventListener('input', scheduleSave);
+});
+</script>
+</body>
+</html>
