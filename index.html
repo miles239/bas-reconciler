@@ -276,7 +276,38 @@
     </div>
 
     <div class="inbox">
-      <h3>Inbox <span class="inbox-count" id="inbox-count">0</span></h3>
+      <h3>Inbox <span class="inbox-count" id="inbox-count">0</span>
+        <button class="btn btn-outline btn-sm" onclick="toggleManualForm()" id="manual-btn" style="font-size:11px;padding:3px 8px">+ Add</button>
+      </h3>
+
+      <!-- Manual entry form -->
+      <div id="manual-form" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">Date</label>
+            <input type="date" id="manual-date" style="width:100%;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px;background:var(--surface);color:var(--text)">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">Description</label>
+            <input type="text" id="manual-desc" placeholder="e.g. Rent received" style="width:100%;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px;background:var(--surface);color:var(--text)">
+          </div>
+          <div>
+            <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:2px">Amount</label>
+            <div style="display:flex;gap:6px;align-items:center">
+              <select id="manual-type" style="border:1px solid var(--border);border-radius:5px;padding:5px 6px;font-size:12px;background:var(--surface);color:var(--text)">
+                <option value="credit">+ Credit</option>
+                <option value="debit">− Debit</option>
+              </select>
+              <input type="number" id="manual-amount" placeholder="0.00" min="0" step="0.01" style="flex:1;border:1px solid var(--border);border-radius:5px;padding:5px 8px;font-size:12px;background:var(--surface);color:var(--text)">
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;margin-top:2px">
+            <button class="btn btn-primary" style="flex:1;justify-content:center;font-size:12px;padding:6px" onclick="addManualTx()">Add to Inbox</button>
+            <button class="btn btn-outline" style="font-size:12px;padding:6px 10px" onclick="toggleManualForm()">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <div id="inbox-list"></div>
     </div>
   </div>
@@ -1065,6 +1096,49 @@ function toast(msg, type = '') {
 // Close modals on overlay click
 document.getElementById('split-modal').addEventListener('click', function(e) { if (e.target === this) closeSplitModal(); });
 document.getElementById('report-modal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
+
+// ─── Manual transaction entry ─────────────────────────────────────────────────
+function toggleManualForm() {
+  const form = document.getElementById('manual-form');
+  const visible = form.style.display !== 'none';
+  form.style.display = visible ? 'none' : 'block';
+  if (!visible) {
+    // Default date to today
+    document.getElementById('manual-date').value = new Date().toISOString().slice(0, 10);
+    document.getElementById('manual-desc').focus();
+  }
+}
+
+function addManualTx() {
+  const dateVal = document.getElementById('manual-date').value;
+  const desc = document.getElementById('manual-desc').value.trim();
+  const amountVal = parseFloat(document.getElementById('manual-amount').value);
+  const type = document.getElementById('manual-type').value;
+
+  if (!desc) { toast('Please enter a description', 'error'); return; }
+  if (isNaN(amountVal) || amountVal <= 0) { toast('Please enter a valid amount', 'error'); return; }
+
+  const amount = type === 'debit' ? -amountVal : amountVal;
+  const date = dateVal ? new Date(dateVal).toLocaleDateString('en-AU') : '';
+
+  transactions.push({ id: nextTxId++, date, dateRaw: dateVal, desc, amount, placed: false });
+
+  // Reset form fields
+  document.getElementById('manual-desc').value = '';
+  document.getElementById('manual-amount').value = '';
+  document.getElementById('manual-form').style.display = 'none';
+
+  renderInbox();
+  updateSummary();
+  toast('Transaction added', 'success');
+}
+
+// Allow Enter key to submit manual form
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && document.getElementById('manual-form').style.display !== 'none') {
+    if (document.activeElement.closest('#manual-form')) addManualTx();
+  }
+});
 
 // ─── Dark mode ────────────────────────────────────────────────────────────────
 function toggleDark() {
