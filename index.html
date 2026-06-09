@@ -25,6 +25,44 @@
     --prop2: #0891b2;
     --prop2-light: #cffafe;
   }
+  .dark {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3347;
+    --primary: #4f8ef7;
+    --primary-light: #1a2540;
+    --danger: #f87171;
+    --success: #4ade80;
+    --success-light: #052e16;
+    --warning: #fbbf24;
+    --warning-light: #1c1408;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --prop1: #a78bfa;
+    --prop1-light: #1e1435;
+    --prop2: #22d3ee;
+    --prop2-light: #0a2535;
+  }
+  .dark .modal { background: var(--surface); color: var(--text); }
+  .dark .split-option { border-color: var(--border); }
+  .dark .split-option:hover, .dark .split-option.selected { background: var(--primary-light); border-color: var(--primary); }
+  .dark .report-modal { background: var(--surface); color: var(--text); }
+  .dark .csv-config select, .dark .csv-config input { background: var(--surface2); color: var(--text); border-color: var(--border); }
+  .dark .prop-settings input, .dark .prop-settings select { background: var(--surface2); color: var(--text); border-color: var(--border); }
+  .dark .quarter-selector select { background: var(--surface); color: var(--text); }
+  .dark .tx-card { background: var(--surface2); }
+  .dark .placed-tx { background: var(--surface2); }
+  .dark .category-card { background: var(--surface); }
+  .dark .split-custom input { background: var(--surface2); color: var(--text); border-color: var(--border); }
+  .dark .modal-tx-info { background: var(--surface2); }
+  .dark .report-total { background: var(--surface2); }
+  .dark .report-row { border-bottom-color: var(--border); }
+  .dark .summary-bar { background: var(--surface); }
+
+  /* Dark mode toggle button */
+  .dark-toggle { background: none; border: 1px solid var(--border); border-radius: 7px; padding: 6px 10px; cursor: pointer; font-size: 16px; color: var(--text); transition: all 0.15s; }
+  .dark-toggle:hover { background: var(--surface2); }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
 
   /* Header */
@@ -199,6 +237,7 @@
         <option>Q4 2025–26 (Apr–Jun)</option>
       </select>
     </div>
+    <button class="dark-toggle" id="dark-toggle" onclick="toggleDark()" title="Toggle dark mode">🌙</button>
     <button class="btn btn-outline" onclick="clearAll()">🗑 Clear All</button>
     <button class="btn btn-success" onclick="openReport()">📄 Generate Report</button>
   </div>
@@ -1026,6 +1065,20 @@ function toast(msg, type = '') {
 // Close modals on overlay click
 document.getElementById('split-modal').addEventListener('click', function(e) { if (e.target === this) closeSplitModal(); });
 document.getElementById('report-modal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
+
+// ─── Dark mode ────────────────────────────────────────────────────────────────
+function toggleDark() {
+  const dark = document.documentElement.classList.toggle('dark');
+  document.getElementById('dark-toggle').textContent = dark ? '☀️' : '🌙';
+  localStorage.setItem('bas-dark', dark ? '1' : '0');
+}
+if (localStorage.getItem('bas-dark') === '1') {
+  document.documentElement.classList.add('dark');
+  document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('dark-toggle');
+    if (btn) btn.textContent = '☀️';
+  });
+}
 
 // ─── Persistence ──────────────────────────────────────────────────────────────
 const SAVE_KEY = 'bas-reconciler-v1';
