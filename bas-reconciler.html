@@ -207,7 +207,9 @@
   /* Recommendation badge */
   .tx-rec { display: flex; align-items: center; gap: 4px; margin-top: 5px; font-size: 11px; color: var(--muted); background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 3px 7px; }
   .rec-dot { font-size: 10px; }
-  .tx-rec span:last-child { font-weight: 500; color: var(--primary); }
+  .tx-rec span:nth-child(2) { font-weight: 500; color: var(--primary); flex: 1; }
+  .rec-assign-btn { background: var(--primary); color: white; border: none; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; margin-left: auto; }
+  .rec-assign-btn:hover { opacity: 0.85; }
 
   /* Misc */
   .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
@@ -236,12 +238,8 @@
   <div class="header-actions">
     <div class="quarter-selector">
       Quarter:
-      <select id="quarter-select">
-        <option>Q1 2025–26 (Jul–Sep)</option>
-        <option>Q2 2025–26 (Oct–Dec)</option>
-        <option selected>Q3 2025–26 (Jan–Mar)</option>
-        <option>Q4 2025–26 (Apr–Jun)</option>
-      </select>
+      <select id="quarter-select"></select>
+      <button class="btn btn-outline" style="padding:4px 9px;font-size:12px" onclick="addNextQuarter()" title="Add next quarter">+ Quarter</button>
     </div>
     <button class="dark-toggle" id="dark-toggle" onclick="toggleDark()" title="Toggle dark mode">🌙</button>
     <button class="btn btn-outline" onclick="clearAll()">🗑 Clear All</button>
@@ -285,6 +283,7 @@
       <h3>Inbox <span class="inbox-count" id="inbox-count">0</span>
         <button class="btn btn-outline btn-sm" onclick="toggleManualForm()" id="manual-btn" style="font-size:11px;padding:3px 8px">+ Add</button>
       </h3>
+      <input type="text" id="inbox-search" placeholder="Search transactions…" oninput="inboxSearch=this.value.toLowerCase();renderInbox()" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;background:var(--surface);color:var(--text);margin-bottom:8px;display:block">
 
       <!-- Manual entry form -->
       <div id="manual-form" style="display:none;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;margin-bottom:10px">
@@ -462,6 +461,7 @@ let activeProp = 'p1';
 let dragItem = null;
 let pendingDrop = null; // { txId, catId }
 let splitSelection = 'p1';
+let inboxSearch = '';
 let csvHeaders = [];
 let csvRows = [];
 let nextTxId = 1;
@@ -579,10 +579,15 @@ async function processPDFFile(file) {
       toast('Could not detect transactions in PDF. Try CSV export instead.', 'error');
       return;
     }
-    txs.forEach(tx => transactions.push({ id: nextTxId++, ...tx, placed: false }));
+    let pdfImported = 0, pdfDupes = 0;
+    txs.forEach(tx => {
+      if (transactions.some(t => t.date === tx.date && t.desc === tx.desc && t.amount === tx.amount)) { pdfDupes++; return; }
+      transactions.push({ id: nextTxId++, ...tx, placed: false });
+      pdfImported++;
+    });
     renderInbox();
     updateSummary();
-    toast(`Imported ${txs.length} transactions from PDF`, 'success');
+    toast(`Imported ${pdfImported} transaction${pdfImported !== 1 ? 's' : ''} from PDF${pdfDupes ? ` (${pdfDupes} duplicate${pdfDupes !== 1 ? 's' : ''} skipped)` : ''}`, 'success');
   } catch(err) {
     console.error(err);
     toast('Failed to read PDF — try a CSV export instead', 'error');
@@ -690,7 +695,7 @@ function importCSV() {
   const debitCol = +document.getElementById('col-debit').value;
   const creditCol = +document.getElementById('col-credit').value;
 
-  let imported = 0;
+  let imported = 0, dupes = 0;
   csvRows.forEach(row => {
     if (row.length < 2) return;
     let amount = 0;
@@ -709,6 +714,7 @@ function importCSV() {
     const desc = row[descCol] || 'No description';
     const date = parseDate(dateRaw);
 
+    if (transactions.some(t => t.date === date && t.desc === desc && t.amount === amount)) { dupes++; return; }
     transactions.push({ id: nextTxId++, date, dateRaw, desc, amount, placed: false });
     imported++;
   });
@@ -716,7 +722,7 @@ function importCSV() {
   renderInbox();
   updateSummary();
   document.getElementById('csv-config').style.display = 'none';
-  toast(`Imported ${imported} transactions`, 'success');
+  toast(`Imported ${imported} transaction${imported !== 1 ? 's' : ''}${dupes ? ` (${dupes} duplicate${dupes !== 1 ? 's' : ''} skipped)` : ''}`, 'success');
 }
 
 function parseAmount(s) {
@@ -794,7 +800,11 @@ function learnFromAssignment(tx, catName) {
 // ─── Inbox ────────────────────────────────────────────────────────────────────
 function renderInbox() {
   const list = document.getElementById('inbox-list');
-  const pending = transactions.filter(t => !t.placed);
+  const pending = transactions.filter(t => !t.placed && (
+    !inboxSearch ||
+    t.desc.toLowerCase().includes(inboxSearch) ||
+    formatAmount(t.amount).includes(inboxSearch)
+  ));
   document.getElementById('inbox-count').textContent = pending.length;
 
   if (pending.length === 0) {
@@ -809,6 +819,7 @@ function renderInbox() {
       ? `<div class="tx-rec" title="${rec.source === 'learned' ? 'Based on your past assignments' : 'Suggested based on description'}">
            <span class="rec-dot">${rec.source === 'learned' ? '🧠' : '💡'}</span>
            <span>${rec.catName}</span>
+           <button class="rec-assign-btn" onclick="event.stopPropagation();quickAssign(${tx.id})" title="Assign to ${rec.catName}">→ Assign</button>
          </div>`
       : '';
     return `<div class="tx-card" id="txcard-${tx.id}" draggable="true"
@@ -823,6 +834,17 @@ function renderInbox() {
       ${recHtml}
     </div>`;
   }).join('');
+}
+
+function quickAssign(txId) {
+  const tx = transactions.find(t => t.id === txId);
+  if (!tx) return;
+  const rec = getRecommendation(tx);
+  if (!rec) return;
+  // Find the matching category on the active property
+  const cat = categories[activeProp].find(c => c.name === rec.catName) || categories[activeProp][0];
+  pendingDrop = { txId, catId: cat.id };
+  openSplitModal(tx);
 }
 
 // ─── Drag & Drop ──────────────────────────────────────────────────────────────
@@ -862,14 +884,19 @@ function onDrop(e, catId) {
 // ─── Split Modal ──────────────────────────────────────────────────────────────
 function openSplitModal(tx) {
   const isPos = tx.amount >= 0;
+  const rec = getRecommendation(tx);
+  const recHint = rec
+    ? `<div style="margin-top:6px;font-size:11px;color:var(--primary)">💡 Suggested category: <strong>${rec.catName}</strong></div>`
+    : '';
   document.getElementById('split-tx-info').innerHTML = `
     <div>${tx.date || tx.dateRaw} — ${tx.desc}</div>
-    <div class="amount ${isPos ? 'positive' : 'negative'}">${formatAmount(tx.amount)}</div>`;
+    <div class="amount ${isPos ? 'positive' : 'negative'}">${formatAmount(tx.amount)}</div>
+    ${recHint}`;
   document.getElementById('opt-p1-label').textContent = '● ' + getPropName('p1');
   document.getElementById('opt-p2-label').textContent = '● ' + getPropName('p2');
   document.getElementById('split-p1-name').textContent = getPropName('p1');
   document.getElementById('split-p2-name').textContent = getPropName('p2');
-  selectSplitOpt('p1');
+  selectSplitOpt(activeProp);
   document.getElementById('split-modal').classList.add('open');
 }
 
@@ -1130,6 +1157,13 @@ function openReport() {
         });
       });
       html += `<div class="report-subtotal"><span>Total Expenses</span><span style="color:var(--danger)">${formatAmount(-totalExpenses)}</span></div>`;
+      if (gst === 'yes') {
+        const itc = totalExpenses / 11;
+        html += `<div class="report-subtotal" style="font-size:12px;color:var(--muted);font-weight:500;border-top:1px dashed var(--border);margin-top:6px">
+          <span>GST Input Tax Credits (1/11 of expenses)</span>
+          <span style="color:var(--primary)">${formatAmount(itc)}</span>
+        </div>`;
+      }
     }
 
     const net = totalIncome - totalExpenses;
@@ -1140,20 +1174,26 @@ function openReport() {
   });
 
   // Combined totals
-  let grandIncome = 0, grandExpenses = 0;
+  let grandIncome = 0, grandExpenses = 0, grandITC = 0;
   ['p1','p2'].forEach(p => {
+    const gst = document.getElementById(p + '-gst').value;
     categories[p].forEach(cat => {
       const total = getCatTotal(cat);
       if (cat.type === 'income') grandIncome += total;
-      else grandExpenses += Math.abs(total);
+      else { grandExpenses += Math.abs(total); if (gst === 'yes') grandITC += Math.abs(total) / 11; }
     });
   });
+  const itcRow = grandITC > 0
+    ? `<div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+        <span>Total GST Input Tax Credits</span><span style="color:#93c5fd">${formatAmount(grandITC)}</span></div>`
+    : '';
   html += `<div style="background:#1e293b;color:white;border-radius:10px;padding:16px 20px;margin-top:8px">
     <div style="font-weight:700;font-size:14px;margin-bottom:10px">COMBINED PORTFOLIO SUMMARY</div>
     <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
       <span>Total Income</span><span style="color:#86efac">${formatAmount(grandIncome)}</span></div>
     <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
       <span>Total Expenses</span><span style="color:#fca5a5">${formatAmount(-grandExpenses)}</span></div>
+    ${itcRow}
     <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:700;border-top:1px solid rgba(255,255,255,0.2);padding-top:10px;margin-top:8px">
       <span>Net Position</span><span style="color:${(grandIncome-grandExpenses) >= 0 ? '#86efac' : '#fca5a5'}">${formatAmount(grandIncome - grandExpenses)}</span></div>
   </div>`;
@@ -1236,9 +1276,12 @@ function toast(msg, type = '') {
   setTimeout(() => el.remove(), 3000);
 }
 
-// Close modals on overlay click
+// Close modals on overlay click or Escape
 document.getElementById('split-modal').addEventListener('click', function(e) { if (e.target === this) closeSplitModal(); });
 document.getElementById('report-modal').addEventListener('click', function(e) { if (e.target === this) closeReport(); });
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { closeSplitModal(); closeReport(); }
+});
 
 // ─── Manual transaction entry ─────────────────────────────────────────────────
 function toggleManualForm() {
@@ -1283,6 +1326,82 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+// ─── Quarter management ───────────────────────────────────────────────────────
+const QUARTER_DEFS = [
+  { q: 1, label: 'Q1', months: 'Jul–Sep', start: [7,1], end: [9,30] },
+  { q: 2, label: 'Q2', months: 'Oct–Dec', start: [10,1], end: [12,31] },
+  { q: 3, label: 'Q3', months: 'Jan–Mar', start: [1,1], end: [3,31] },
+  { q: 4, label: 'Q4', months: 'Apr–Jun', start: [4,1], end: [6,30] },
+];
+
+function fyLabel(fy) {
+  return `${fy}–${String(fy+1).slice(2)}`;
+}
+
+function quarterKey(fy, q) {
+  const def = QUARTER_DEFS[q-1];
+  return `${def.label} ${fyLabel(fy)} (${def.months})`;
+}
+
+function currentFY() {
+  const now = new Date();
+  return now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+}
+
+function currentQuarterNum() {
+  const m = new Date().getMonth() + 1;
+  if (m >= 7 && m <= 9) return 1;
+  if (m >= 10 && m <= 12) return 2;
+  if (m >= 1 && m <= 3) return 3;
+  return 4;
+}
+
+function initQuarters(savedList, savedSelected) {
+  const sel = document.getElementById('quarter-select');
+  const fy = currentFY();
+  const qNum = currentQuarterNum();
+
+  let quarters = savedList && savedList.length
+    ? savedList
+    : [
+        quarterKey(fy, 1),
+        quarterKey(fy, 2),
+        quarterKey(fy, 3),
+        quarterKey(fy, 4),
+      ];
+
+  sel.innerHTML = quarters.map(q => `<option>${q}</option>`).join('');
+
+  // Select saved quarter or current quarter by default
+  const defaultQ = savedSelected || quarterKey(fy, qNum);
+  const opt = Array.from(sel.options).find(o => o.value === defaultQ);
+  if (opt) opt.selected = true;
+
+  return quarters;
+}
+
+let quarterList = initQuarters(null, null);
+
+function addNextQuarter() {
+  const sel = document.getElementById('quarter-select');
+  const last = quarterList[quarterList.length - 1];
+  // Parse last quarter to determine next
+  const matchFY = last.match(/(\d{4})–(\d{2})/);
+  const matchQ = last.match(/Q(\d)/);
+  if (!matchFY || !matchQ) return;
+  let fy = parseInt(matchFY[1]);
+  let q = parseInt(matchQ[1]);
+  q++;
+  if (q > 4) { q = 1; fy++; }
+  const next = quarterKey(fy, q);
+  if (quarterList.includes(next)) return;
+  quarterList.push(next);
+  sel.innerHTML = quarterList.map(qk => `<option>${qk}</option>`).join('');
+  sel.value = next;
+  scheduleSave();
+  toast(`Added ${next}`, 'success');
+}
+
 // ─── Dark mode ────────────────────────────────────────────────────────────────
 function toggleDark() {
   const dark = document.documentElement.classList.toggle('dark');
@@ -1315,6 +1434,7 @@ function saveState() {
       p1Gst: document.getElementById('p1-gst').value,
       p2Gst: document.getElementById('p2-gst').value,
       quarter: document.getElementById('quarter-select').value,
+      quarterList,
     };
     localStorage.setItem(SAVE_KEY, JSON.stringify(state));
   } catch(e) {}
@@ -1336,6 +1456,7 @@ function loadState() {
     if (s.p2Address) document.getElementById('p2-address').value = s.p2Address;
     if (s.p1Gst) document.getElementById('p1-gst').value = s.p1Gst;
     if (s.p2Gst) document.getElementById('p2-gst').value = s.p2Gst;
+    quarterList = initQuarters(s.quarterList || null, s.quarter);
     if (s.quarter) document.getElementById('quarter-select').value = s.quarter;
     return true;
   } catch(e) { return false; }
