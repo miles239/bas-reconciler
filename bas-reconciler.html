@@ -1353,6 +1353,8 @@ renderInbox = function() { _origRenderInbox(); scheduleSave(); };
 
 // Initial render
 const didLoad = loadState();
+updatePropName('p1');
+updatePropName('p2');
 setActiveProp(activeProp);
 renderInbox();
 updateSummary();
