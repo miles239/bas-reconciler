@@ -25,6 +25,8 @@
     --prop1-light: #ede9fe;
     --prop2: #0891b2;
     --prop2-light: #cffafe;
+    --entity: #059669;
+    --entity-light: #d1fae5;
   }
   .dark {
     --bg: #0f1117;
@@ -129,6 +131,7 @@
   .prop-tab:hover { background: var(--surface2); color: var(--text); }
   .prop-tab.active-p1 { border-bottom-color: var(--prop1); color: var(--prop1); }
   .prop-tab.active-p2 { border-bottom-color: var(--prop2); color: var(--prop2); }
+  .prop-tab.active-entity { border-bottom-color: var(--entity); color: var(--entity); }
   .prop-tab-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 
   /* Property settings */
@@ -339,6 +342,10 @@
         <span class="prop-tab-dot" style="background:var(--prop2)"></span>
         <span id="tab-p2-label">Property 2</span>
       </div>
+      <div class="prop-tab" id="tab-entity" onclick="setActiveProp('entity')">
+        <span class="prop-tab-dot" style="background:var(--entity)"></span>
+        <span id="tab-entity-label">Entity</span>
+      </div>
     </div>
 
     <!-- Property name fields -->
@@ -371,6 +378,23 @@
       <div class="field" style="max-width:120px">
         <label>GST Registered?</label>
         <select id="p2-gst" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;background:white">
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </div>
+    </div>
+    <div class="prop-settings" id="prop-settings-entity" style="display:none;border-left:3px solid var(--entity)">
+      <div class="field">
+        <label>Entity Name</label>
+        <input type="text" id="entity-name" value="Entity" oninput="updatePropName('entity')" placeholder="e.g. Smith Property Trust">
+      </div>
+      <div class="field">
+        <label>ABN / Entity Type</label>
+        <input type="text" id="entity-abn" placeholder="e.g. 12 345 678 901 · Discretionary Trust">
+      </div>
+      <div class="field" style="max-width:120px">
+        <label>GST Registered?</label>
+        <select id="entity-gst" style="width:100%;border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:13px;background:white">
           <option value="yes">Yes</option>
           <option value="no">No</option>
         </select>
@@ -425,6 +449,9 @@
       <div class="split-option" id="opt-p2" onclick="selectSplitOpt('p2')">
         <label><input type="radio" name="split" value="p2"> <span id="opt-p2-label" style="color:var(--prop2)">●</span> Property 2 (100%)</label>
       </div>
+      <div class="split-option" id="opt-entity" onclick="selectSplitOpt('entity')">
+        <label><input type="radio" name="split" value="entity"> <span id="opt-entity-label" style="color:var(--entity)">●</span> <span id="opt-entity-name">Entity</span></label>
+      </div>
       <div class="split-option" id="opt-split" onclick="selectSplitOpt('split')">
         <label><input type="radio" name="split" value="split"> Split between both properties</label>
         <div class="split-custom" id="split-custom" style="display:none">
@@ -466,7 +493,7 @@
 <script>
 // ─── State ───────────────────────────────────────────────────────────────────
 let transactions = [];
-let categories = { p1: [], p2: [] };
+let categories = { p1: [], p2: [], entity: [] };
 let activeProp = 'p1';
 let dragItem = null;
 let pendingDrop = null; // { txId, catId }
@@ -490,18 +517,24 @@ const DEFAULT_CATEGORIES = [
   { name: 'Other Expenses', icon: '📦', type: 'expense' },
 ];
 
+const DEFAULT_ENTITY_CATEGORIES = [
+  { name: 'Accounting & Legal', icon: '⚖️', type: 'expense' },
+  { name: 'Bank Fees', icon: '🏦', type: 'expense' },
+  { name: 'Portfolio Insurance', icon: '🛡', type: 'expense' },
+  { name: 'Administration', icon: '📁', type: 'expense' },
+  { name: 'Other Entity Expenses', icon: '📦', type: 'expense' },
+];
+
 // Init default categories
 function initCategories() {
   ['p1', 'p2'].forEach(p => {
     categories[p] = DEFAULT_CATEGORIES.map(c => ({
-      id: nextCatId++,
-      prop: p,
-      name: c.name,
-      icon: c.icon,
-      type: c.type,
-      transactions: [],
+      id: nextCatId++, prop: p, name: c.name, icon: c.icon, type: c.type, transactions: [],
     }));
   });
+  categories.entity = DEFAULT_ENTITY_CATEGORIES.map(c => ({
+    id: nextCatId++, prop: 'entity', name: c.name, icon: c.icon, type: c.type, transactions: [],
+  }));
 }
 
 initCategories();
@@ -512,10 +545,12 @@ function setActiveProp(p) {
   activeProp = p;
   document.getElementById('tab-p1').className = 'prop-tab' + (p === 'p1' ? ' active-p1' : '');
   document.getElementById('tab-p2').className = 'prop-tab' + (p === 'p2' ? ' active-p2' : '');
+  document.getElementById('tab-entity').className = 'prop-tab' + (p === 'entity' ? ' active-entity' : '');
   document.getElementById('prop-settings-p1').style.display = p === 'p1' ? 'flex' : 'none';
   document.getElementById('prop-settings-p2').style.display = p === 'p2' ? 'flex' : 'none';
+  document.getElementById('prop-settings-entity').style.display = p === 'entity' ? 'flex' : 'none';
   const name = getPropName(p);
-  const color = p === 'p1' ? 'var(--prop1)' : 'var(--prop2)';
+  const color = p === 'p1' ? 'var(--prop1)' : p === 'p2' ? 'var(--prop2)' : 'var(--entity)';
   document.getElementById('section-dot').style.background = color;
   document.getElementById('section-title-text').textContent = name + ' — Categories';
   renderCategories();
@@ -523,6 +558,7 @@ function setActiveProp(p) {
 }
 
 function getPropName(p) {
+  if (p === 'entity') return document.getElementById('entity-name').value || 'Entity';
   return document.getElementById(p + '-name').value || (p === 'p1' ? 'Property 1' : 'Property 2');
 }
 
@@ -914,15 +950,16 @@ function openSplitModal(tx) {
     ${recHint}`;
   document.getElementById('opt-p1-label').textContent = '● ' + getPropName('p1');
   document.getElementById('opt-p2-label').textContent = '● ' + getPropName('p2');
+  document.getElementById('opt-entity-name').textContent = getPropName('entity');
   document.getElementById('split-p1-name').textContent = getPropName('p1');
   document.getElementById('split-p2-name').textContent = getPropName('p2');
-  selectSplitOpt(activeProp);
+  selectSplitOpt(activeProp === 'entity' ? 'entity' : activeProp);
   document.getElementById('split-modal').classList.add('open');
 }
 
 function selectSplitOpt(opt) {
   splitSelection = opt;
-  ['p1','p2','split'].forEach(o => {
+  ['p1','p2','entity','split'].forEach(o => {
     document.getElementById('opt-' + o).classList.toggle('selected', o === opt);
     document.querySelector(`input[value="${o}"]`).checked = o === opt;
   });
@@ -994,7 +1031,7 @@ function closeSplitModal() {
 
 // ─── Categories ───────────────────────────────────────────────────────────────
 function getCatById(id) {
-  for (const p of ['p1','p2']) {
+  for (const p of ['p1','p2','entity']) {
     const c = categories[p].find(c => c.id === id);
     if (c) return c;
   }
@@ -1151,11 +1188,12 @@ function openReport() {
   const quarter = document.getElementById('quarter-select').value;
   let html = `<div style="font-size:12px;color:var(--muted);margin-bottom:16px">Generated: ${new Date().toLocaleDateString('en-AU')} · ${quarter}</div>`;
 
-  ['p1','p2'].forEach(p => {
+  ['p1','p2','entity'].forEach(p => {
     const name = getPropName(p);
-    const address = document.getElementById(p + '-address').value;
-    const gst = document.getElementById(p + '-gst').value;
+    const address = p !== 'entity' ? document.getElementById(p + '-address').value : document.getElementById('entity-abn').value;
+    const gst = document.getElementById(p === 'entity' ? 'entity-gst' : p + '-gst').value;
     const cats = categories[p];
+    if (p === 'entity' && cats.every(c => c.transactions.length === 0)) return; // skip entity if empty
 
     html += `<div class="report-section">
       <h4>${name}${address ? ' — ' + address : ''} ${gst === 'yes' ? '(GST Registered)' : ''}</h4>`;
@@ -1232,8 +1270,8 @@ function openReport() {
 
   // Combined totals
   let grandIncome = 0, grandExpenses = 0, grandITC = 0;
-  ['p1','p2'].forEach(p => {
-    const gst = document.getElementById(p + '-gst').value;
+  ['p1','p2','entity'].forEach(p => {
+    const gst = document.getElementById(p === 'entity' ? 'entity-gst' : p + '-gst').value;
     categories[p].forEach(cat => {
       const total = getCatTotal(cat);
       if (cat.type === 'income') grandIncome += total;
@@ -1295,7 +1333,7 @@ function printReport() {
 function exportCSV() {
   const quarter = document.getElementById('quarter-select').value;
   let rows = [['Property','Category','Type','Date','Description','Amount','Split%']];
-  ['p1','p2'].forEach(p => {
+  ['p1','p2','entity'].forEach(p => {
     const name = getPropName(p);
     categories[p].forEach(cat => {
       cat.transactions.forEach(e => {
@@ -1327,7 +1365,7 @@ function clearAll() {
   if (!confirm('Clear all transactions and assignments? Property names and categories will be kept.')) return;
   transactions = [];
   nextTxId = 1;
-  ['p1','p2'].forEach(p => categories[p].forEach(c => c.transactions = []));
+  ['p1','p2','entity'].forEach(p => categories[p].forEach(c => c.transactions = []));
   renderInbox();
   renderCategories();
   updateSummary();
@@ -1499,6 +1537,9 @@ function saveState() {
       p2Address: document.getElementById('p2-address').value,
       p1Gst: document.getElementById('p1-gst').value,
       p2Gst: document.getElementById('p2-gst').value,
+      entityName: document.getElementById('entity-name').value,
+      entityAbn: document.getElementById('entity-abn').value,
+      entityGst: document.getElementById('entity-gst').value,
       quarter: document.getElementById('quarter-select').value,
       quarterList,
     };
@@ -1512,7 +1553,8 @@ function loadState() {
     if (!raw) return false;
     const s = JSON.parse(raw);
     transactions = s.transactions || [];
-    categories = s.categories || { p1: [], p2: [] };
+    categories = s.categories || { p1: [], p2: [], entity: [] };
+    if (!categories.entity) categories.entity = DEFAULT_ENTITY_CATEGORIES.map(c => ({ id: nextCatId++, prop: 'entity', name: c.name, icon: c.icon, type: c.type, transactions: [] }));
     activeProp = s.activeProp || 'p1';
     nextTxId = s.nextTxId || 1;
     nextCatId = s.nextCatId || 1;
@@ -1522,6 +1564,9 @@ function loadState() {
     if (s.p2Address) document.getElementById('p2-address').value = s.p2Address;
     if (s.p1Gst) document.getElementById('p1-gst').value = s.p1Gst;
     if (s.p2Gst) document.getElementById('p2-gst').value = s.p2Gst;
+    if (s.entityName) document.getElementById('entity-name').value = s.entityName;
+    if (s.entityAbn) document.getElementById('entity-abn').value = s.entityAbn;
+    if (s.entityGst) document.getElementById('entity-gst').value = s.entityGst;
     quarterList = initQuarters(s.quarterList || null, s.quarter);
     if (s.quarter) document.getElementById('quarter-select').value = s.quarter;
     return true;
@@ -1542,13 +1587,14 @@ renderInbox = function() { _origRenderInbox(); scheduleSave(); };
 const didLoad = loadState();
 updatePropName('p1');
 updatePropName('p2');
+updatePropName('entity');
 setActiveProp(activeProp);
 renderInbox();
 updateSummary();
 if (didLoad) toast('Session restored', 'success');
 
 // Save on property name/address/gst changes
-['p1-name','p2-name','p1-address','p2-address','p1-gst','p2-gst','quarter-select'].forEach(id => {
+['p1-name','p2-name','p1-address','p2-address','p1-gst','p2-gst','entity-name','entity-abn','entity-gst','quarter-select'].forEach(id => {
   const el = document.getElementById(id);
   if (el) el.addEventListener('change', scheduleSave);
   if (el) el.addEventListener('input', scheduleSave);
