@@ -210,6 +210,16 @@
   .tx-rec span:nth-child(2) { font-weight: 500; color: var(--primary); flex: 1; }
   .rec-assign-btn { background: var(--primary); color: white; border: none; border-radius: 4px; padding: 2px 7px; font-size: 10px; font-weight: 600; cursor: pointer; white-space: nowrap; margin-left: auto; }
   .rec-assign-btn:hover { opacity: 0.85; }
+  .discard-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 11px; padding: 0 2px; line-height: 1; border-radius: 3px; }
+  .discard-btn:hover { color: var(--danger); background: #fee2e2; }
+
+  /* GST excluded */
+  .gst-excl-badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; background: var(--warning-light); color: var(--warning); font-weight: 600; white-space: nowrap; }
+  .cat-gst-toggle { font-size: 10px; padding: 2px 7px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; font-weight: 500; white-space: nowrap; }
+  .cat-gst-toggle.excluded { background: var(--warning-light); color: var(--warning); border-color: var(--warning); }
+  .placed-tx.gst-excluded { opacity: 0.7; }
+  .tx-gst-toggle { font-size: 10px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; white-space: nowrap; }
+  .tx-gst-toggle.excluded { background: var(--warning-light); color: var(--warning); border-color: var(--warning); }
 
   /* Misc */
   .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
@@ -825,7 +835,10 @@ function renderInbox() {
     return `<div class="tx-card" id="txcard-${tx.id}" draggable="true"
       ondragstart="onDragStart(event,${tx.id})"
       ondragend="onDragEnd(event)">
-      <div class="tx-date">${tx.date || tx.dateRaw}</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start">
+        <div class="tx-date">${tx.date || tx.dateRaw}</div>
+        <button class="discard-btn" onclick="event.stopPropagation();discardTx(${tx.id})" title="Discard transaction">✕</button>
+      </div>
       <div class="tx-desc" title="${tx.desc}">${tx.desc}</div>
       <div class="tx-meta">
         <span class="tx-badge ${isPos ? 'income' : 'expense'}">${isPos ? 'Credit' : 'Debit'}</span>
@@ -834,6 +847,13 @@ function renderInbox() {
       ${recHtml}
     </div>`;
   }).join('');
+}
+
+function discardTx(txId) {
+  transactions = transactions.filter(t => t.id !== txId);
+  renderInbox();
+  updateSummary();
+  scheduleSave();
 }
 
 function quickAssign(txId) {
@@ -984,18 +1004,21 @@ function renderCategories() {
 
   grid.innerHTML = cats.map(cat => {
     const total = getCatTotal(cat);
-    const txItems = cat.transactions.map(entry => {
+    const catGstExcl = !!cat.gstExcluded;
+    const txItems = cat.transactions.map((entry, ei) => {
       const tx = transactions.find(t => t.id === entry.txId);
       if (!tx) return '';
       const amt = tx.amount * entry.splitPct;
       const isPos = amt >= 0;
       const isSplit = tx.splitInfo && tx.splitInfo.type === 'split';
-      return `<div class="placed-tx">
+      const entryExcl = catGstExcl || !!entry.gstExcluded;
+      return `<div class="placed-tx${entryExcl ? ' gst-excluded' : ''}">
         <div style="flex:1;min-width:0">
           <div class="placed-tx-desc" title="${tx.desc}">${tx.desc}</div>
           <div class="placed-tx-date">${tx.date || tx.dateRaw}${isSplit ? ` · ${Math.round(entry.splitPct*100)}%` : ''}</div>
         </div>
         ${isSplit ? `<span class="split-badge">Split</span>` : ''}
+        ${!catGstExcl ? `<button class="tx-gst-toggle${entry.gstExcluded ? ' excluded' : ''}" onclick="toggleEntryGst(${cat.id},${entry.txId})" title="${entry.gstExcluded ? 'Click to include in GST' : 'Click to exclude from GST'}">${entry.gstExcluded ? 'No GST' : 'GST'}</button>` : `<span class="gst-excl-badge">No GST</span>`}
         <span class="placed-tx-amount ${isPos ? 'positive' : 'negative'}">${formatAmount(amt)}</span>
         <button class="remove-btn" onclick="removeTx(${cat.id},${entry.txId})" title="Remove">×</button>
       </div>`;
@@ -1007,7 +1030,8 @@ function renderCategories() {
           <span class="cat-icon">${cat.icon}</span>
           <span contenteditable="true" onblur="renameCat(${cat.id},this.textContent.trim())" style="outline:none;cursor:text" title="Click to rename">${cat.name}</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <button class="cat-gst-toggle${catGstExcl ? ' excluded' : ''}" onclick="toggleCatGst(${cat.id})" title="${catGstExcl ? 'All transactions excluded from GST — click to include' : 'Click to exclude entire category from GST'}">${catGstExcl ? 'GST Excluded' : 'GST'}</button>
           <span class="category-total ${cat.type}">${formatAmount(total)}</span>
           <button class="btn btn-danger btn-sm" onclick="deleteCategory(${cat.id})" title="Delete category">×</button>
         </div>
@@ -1020,6 +1044,24 @@ function renderCategories() {
       </div>
     </div>`;
   }).join('');
+}
+
+function toggleCatGst(catId) {
+  const cat = getCatById(catId);
+  if (!cat) return;
+  cat.gstExcluded = !cat.gstExcluded;
+  renderCategories();
+  scheduleSave();
+}
+
+function toggleEntryGst(catId, txId) {
+  const cat = getCatById(catId);
+  if (!cat) return;
+  const entry = cat.transactions.find(e => e.txId === txId);
+  if (!entry) return;
+  entry.gstExcluded = !entry.gstExcluded;
+  renderCategories();
+  scheduleSave();
 }
 
 function getCatTotal(cat) {
@@ -1158,11 +1200,23 @@ function openReport() {
       });
       html += `<div class="report-subtotal"><span>Total Expenses</span><span style="color:var(--danger)">${formatAmount(-totalExpenses)}</span></div>`;
       if (gst === 'yes') {
-        const itc = totalExpenses / 11;
-        html += `<div class="report-subtotal" style="font-size:12px;color:var(--muted);font-weight:500;border-top:1px dashed var(--border);margin-top:6px">
-          <span>GST Input Tax Credits (1/11 of expenses)</span>
-          <span style="color:var(--primary)">${formatAmount(itc)}</span>
-        </div>`;
+        // Sum only GST-inclusive expenses (not excluded at cat or entry level)
+        let gstInclusiveExpenses = 0;
+        expenseCats.forEach(cat => {
+          if (cat.gstExcluded) return;
+          cat.transactions.forEach(entry => {
+            if (entry.gstExcluded) return;
+            const tx = transactions.find(t => t.id === entry.txId);
+            if (tx) gstInclusiveExpenses += Math.abs(tx.amount * entry.splitPct);
+          });
+        });
+        if (gstInclusiveExpenses > 0) {
+          const itc = gstInclusiveExpenses / 11;
+          html += `<div class="report-subtotal" style="font-size:12px;color:var(--muted);font-weight:500;border-top:1px dashed var(--border);margin-top:6px">
+            <span>GST Input Tax Credits (1/11 of GST-inclusive expenses)</span>
+            <span style="color:var(--primary)">${formatAmount(itc)}</span>
+          </div>`;
+        }
       }
     }
 
@@ -1180,7 +1234,16 @@ function openReport() {
     categories[p].forEach(cat => {
       const total = getCatTotal(cat);
       if (cat.type === 'income') grandIncome += total;
-      else { grandExpenses += Math.abs(total); if (gst === 'yes') grandITC += Math.abs(total) / 11; }
+      else {
+        grandExpenses += Math.abs(total);
+        if (gst === 'yes' && !cat.gstExcluded) {
+          cat.transactions.forEach(entry => {
+            if (entry.gstExcluded) return;
+            const tx = transactions.find(t => t.id === entry.txId);
+            if (tx) grandITC += Math.abs(tx.amount * entry.splitPct) / 11;
+          });
+        }
+      }
     });
   });
   const itcRow = grandITC > 0
