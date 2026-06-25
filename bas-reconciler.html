@@ -1100,6 +1100,19 @@ function toggleEntryGst(catId, txId) {
   const entry = cat.transactions.find(e => e.txId === txId);
   if (!entry) return;
   entry.gstExcluded = !entry.gstExcluded;
+
+  // Sync to the other property's entry if this is a split transaction
+  const tx = transactions.find(t => t.id === txId);
+  if (tx && tx.splitInfo && tx.splitInfo.type === 'split') {
+    ['p1','p2','entity'].forEach(p => {
+      if (p === cat.prop) return;
+      categories[p].forEach(c => {
+        const otherEntry = c.transactions.find(e => e.txId === txId);
+        if (otherEntry) otherEntry.gstExcluded = entry.gstExcluded;
+      });
+    });
+  }
+
   renderCategories();
   scheduleSave();
 }
