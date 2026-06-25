@@ -223,6 +223,8 @@
   .placed-tx.gst-excluded { opacity: 0.7; }
   .tx-gst-toggle { font-size: 10px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; white-space: nowrap; }
   .tx-gst-toggle.excluded { background: var(--warning-light); color: var(--warning); border-color: var(--warning); }
+  .tx-move-btn { font-size: 12px; padding: 1px 5px; border-radius: 3px; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; line-height: 1.4; }
+  .tx-move-btn:hover { background: var(--prop1-light); color: var(--prop1); border-color: var(--prop1); }
 
   /* Misc */
   .empty-state { text-align: center; padding: 40px 20px; color: var(--muted); }
@@ -1060,6 +1062,7 @@ function renderCategories() {
         ${isSplit ? `<span class="split-badge">Split</span>` : ''}
         ${!catGstExcl ? `<button class="tx-gst-toggle${entry.gstExcluded ? ' excluded' : ''}" onclick="toggleEntryGst(${cat.id},${entry.txId})" title="${entry.gstExcluded ? 'Click to include in GST' : 'Click to exclude from GST'}">${entry.gstExcluded ? 'No GST' : 'GST'}</button>` : `<span class="gst-excl-badge">No GST</span>`}
         <span class="placed-tx-amount ${isPos ? 'positive' : 'negative'}">${formatAmount(amt)}</span>
+        <button class="tx-move-btn" onclick="moveTx(${cat.id},${entry.txId})" title="Move / reassign">⇄</button>
         <button class="remove-btn" onclick="removeTx(${cat.id},${entry.txId})" title="Remove">×</button>
       </div>`;
     }).join('');
@@ -1122,6 +1125,21 @@ function getCatTotal(cat) {
     const tx = transactions.find(t => t.id === entry.txId);
     return sum + (tx ? tx.amount * entry.splitPct : 0);
   }, 0);
+}
+
+function moveTx(catId, txId) {
+  // Unplace from all categories, then reopen the assignment modal
+  const tx = transactions.find(t => t.id === txId);
+  if (!tx) return;
+  ['p1','p2','entity'].forEach(p => {
+    categories[p].forEach(c => { c.transactions = c.transactions.filter(e => e.txId !== txId); });
+  });
+  tx.placed = false;
+  tx.splitInfo = null;
+  renderInbox();
+  renderCategories();
+  updateSummary();
+  openSplitModal(tx);
 }
 
 function removeTx(catId, txId) {
