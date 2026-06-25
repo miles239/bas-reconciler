@@ -954,10 +954,13 @@ function confirmSplit() {
     // Add to current prop's cat
     cat.transactions.push({ txId, splitProp: cat.prop, splitPct: cat.prop === 'p1' ? pct1 : pct2 });
 
-    // Find same-name cat in other prop
+    // Find same-name cat in other prop, fall back to same index position
     const otherProp = cat.prop === 'p1' ? 'p2' : 'p1';
-    let otherCat = categories[otherProp].find(c => c.name === cat.name);
-    if (!otherCat) otherCat = categories[otherProp][categories[otherProp].length - 1];
+    let otherCat = categories[otherProp].find(c => c.name.trim() === cat.name.trim());
+    if (!otherCat) {
+      const catIndex = categories[cat.prop].findIndex(c => c.id === cat.id);
+      otherCat = categories[otherProp][catIndex] || categories[otherProp][0];
+    }
     if (otherCat) {
       otherCat.transactions.push({ txId, splitProp: otherProp, splitPct: otherProp === 'p1' ? pct1 : pct2 });
     }
